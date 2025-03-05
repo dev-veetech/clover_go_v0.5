@@ -242,14 +242,17 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.text = "Connecting to reader..."
 
         lifecycleScope.launch {
-            goSdk.connect(reader)
-//                .catch { error ->
-//                    Timber.e(error, "Connection error")
-//                    binding.statusText.text = "Connection failed: ${error.message}"
-//                }
-//                .collect { connectionState ->
-//                    Timber.d("Connection state: $connectionState")
-//                }
+            try {
+                // This assumes connect returns a Unit or similar non-Flow result
+                goSdk.connect(reader)
+                Timber.d("Connect request initiated")
+
+                // The actual connection status will come through observeCardReaderStatus()
+                // which we're already monitoring in onCreate
+            } catch (e: Exception) {
+                Timber.e(e, "Connection error")
+                binding.statusText.text = "Connection failed: ${e.message}"
+            }
         }
     }
 
