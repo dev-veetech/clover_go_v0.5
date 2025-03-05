@@ -99,14 +99,14 @@ class MainActivity : AppCompatActivity() {
         // Create GoSdk configuration using the provided parameters
         val config = GoSdkConfiguration.Builder(
             context = applicationContext,
-            appId = "ER4CWW10XDR4E",
+            appId = "DRTZ4XVXJ35ZJ",
             appVersion = "1.0.0",
             apiKey = "8a16faa5-5a63-7884-68bd-ebe29279f0dc", // Replace with your actual API key
-            apiSecret = "1c8b99b4-5b99-6c69-e2de-bd8653219ddb", // Replace with your actual API secret
-            oAuthFlowAppSecret = "1c8b99b4-5b99-6c69-e2de-bd8653219ddb", // Replace with your actual OAuth app secret
+            apiSecret = "aeac2c1a-da66-f4cb-f8e2-d77ac8b436e3", // Replace with your actual API secret
+            oAuthFlowAppSecret = "aeac2c1a-da66-f4cb-f8e2-d77ac8b436e3", // Replace with your actual OAuth app secret
             oAuthFlowRedirectURI = "https://combined-cms.getnook.ai/OAuthResponse", // Replace with your actual redirect URI
-            oAuthFlowAppID = "ER4CWW10XDR4E", // Replace with your actual OAuth app ID
-            environment = GoSdkConfiguration.Environment.DEV,
+            oAuthFlowAppID = "DRTZ4XVXJ35ZJ", // Replace with your actual OAuth app ID
+            environment = GoSdkConfiguration.Environment.SANDBOX,
             reconnectLastConnectedReader = true
         ).build()
 
