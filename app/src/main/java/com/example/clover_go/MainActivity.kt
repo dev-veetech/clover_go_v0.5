@@ -13,8 +13,18 @@ import android.os.*
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.clover.sdk.gosdk.GoSdk
+import com.clover.sdk.gosdk.GoSdkConfiguration
+import com.clover.sdk.gosdk.GoSdkCreator
+import com.clover.sdk.gosdk.core.domain.model.ReaderInfo
+import com.clover.sdk.gosdk.model.PayRequest
+import com.clover.sdk.gosdk.payment.domain.model.CardReaderStatus
 import com.example.clover_go.databinding.ActivityMainBinding
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.text.NumberFormat
 import java.util.Locale
@@ -23,6 +33,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var deviceAdapter: DeviceAdapter
+    private lateinit var goSdk: GoSdk
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var isScanning = false
@@ -35,6 +46,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Initialize GoSdk using the method from the documentation
+        initializeGoSdk()
 
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
@@ -56,8 +70,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.scanButton.setOnClickListener {
             requestBluetoothPermissions()
-            startBluetoothDiscovery()
-            startBluetoothScan()
+            scanForCloverReaders()
         }
 
         binding.processPaymentButton.setOnClickListener {
@@ -65,12 +78,65 @@ class MainActivity : AppCompatActivity() {
             if (amountText.isNotEmpty()) {
                 try {
                     val amount = amountText.toDouble() * 100 // Convert to cents
-                    processPayment(amount.toInt())
+                    processPayment(amount.toLong())
                 } catch (e: NumberFormatException) {
                     Toast.makeText(this, "Invalid amount", Toast.LENGTH_SHORT).show()
                 }
             } else {
                 Toast.makeText(this, "Please enter an amount", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Observe card reader status
+        lifecycleScope.launch {
+            goSdk.observeCardReaderStatus().collectLatest { status ->
+                handleCardReaderStatus(status)
+            }
+        }
+    }
+
+    private fun initializeGoSdk() {
+        // Create GoSdk configuration using the provided parameters
+        val config = GoSdkConfiguration.Builder(
+            context = applicationContext,
+            appId = packageName,
+            appVersion = "1.0.0",
+            apiKey = "YOUR_API_KEY", // Replace with your actual API key
+            apiSecret = "YOUR_API_SECRET", // Replace with your actual API secret
+            oAuthFlowAppSecret = "YOUR_OAUTH_FLOW_APP_SECRET", // Replace with your actual OAuth app secret
+            oAuthFlowRedirectURI = "YOUR_OAUTH_FLOW_REDIRECT_URI", // Replace with your actual redirect URI
+            oAuthFlowAppID = "YOUR_OAUTH_FLOW_APP_ID", // Replace with your actual OAuth app ID
+            environment = GoSdkConfiguration.Environment.SANDBOX,
+            reconnectLastConnectedReader = true
+        ).build()
+
+        // Initialize the GoSdk instance
+        goSdk = GoSdkCreator.create(config)
+    }
+
+    private fun handleCardReaderStatus(status: CardReaderStatus) {
+        Timber.d("Card reader status: $status")
+
+        when (status) {
+            is CardReaderStatus.BatteryPercentChanged -> {
+                binding.statusText.text = "Battery: ${status.readerInfo.battery}%"
+            }
+            is CardReaderStatus.Connected -> {
+                binding.statusText.text = "Status: Connected"
+            }
+            is CardReaderStatus.Connecting -> {
+                binding.statusText.text = "Status: Connecting..."
+            }
+            is CardReaderStatus.Disconnected -> {
+                binding.statusText.text = "Status: Disconnected"
+                binding.processPaymentButton.isEnabled = false
+            }
+            is CardReaderStatus.Ready -> {
+                binding.statusText.text = "Status: Ready to process payments"
+                binding.processPaymentButton.isEnabled = true
+            }
+            else -> {
+                binding.statusText.text = "Status: $status"
             }
         }
     }
@@ -128,97 +194,62 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun startBluetoothScan() {
-        if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) {
-            Toast.makeText(this, "Enable Bluetooth first", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // Clear previous device list if not already scanning
-        if (!isScanning) {
-            deviceAdapter.updateDevices(emptyList())
-        }
-
+    private fun scanForCloverReaders() {
         // Update UI
         binding.scanButton.text = "Scanning..."
-        binding.statusText.text = "Scanning for devices..."
+        binding.statusText.text = "Scanning for Clover Go devices..."
         isScanning = true
 
-        try {
-            bluetoothAdapter?.bluetoothLeScanner?.startScan(scanCallback)
-            Timber.d("BLE scan started")
-        } catch (e: Exception) {
-            Timber.e(e, "Error starting BLE scan")
+        // Clear previous device list
+        deviceAdapter.updateDevices(emptyList())
+
+        // Launch in a coroutine scope
+        lifecycleScope.launch {
+            goSdk.scanForReaders()
+                .catch { error ->
+                    Timber.e(error, "Error scanning for readers")
+                    binding.statusText.text = "Scan error: ${error.message}"
+                    binding.scanButton.text = "SCAN FOR DEVICES"
+                    isScanning = false
+                }
+                .collectLatest { reader ->
+                    Timber.d("Reader found: ${reader.bluetoothName}")
+
+                    // Show a toast with the reader info
+                    Toast.makeText(this@MainActivity,
+                        "Found reader: ${reader.bluetoothName}",
+                        Toast.LENGTH_SHORT).show()
+
+                    // Connect to the reader if it matches a specific pattern
+                    // Uncomment and modify this to auto-connect to a specific reader
+                     if (reader.bluetoothName.contains("XXXXXX")) { // Last 6 digits of device serial
+                         connectToCloverReader(reader)
+                     }
+                }
         }
 
-        // Stop scanning after SCAN_PERIOD
+        // Set a timeout to stop scanning
         handler.postDelayed({
-            stopBluetoothScan()
+            if (isScanning) {
+                binding.scanButton.text = "SCAN FOR DEVICES"
+                binding.statusText.text = "Scan completed"
+                isScanning = false
+            }
         }, SCAN_PERIOD)
     }
 
-    @SuppressLint("MissingPermission")
-    private fun startBluetoothDiscovery() {
-        if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) return
+    private fun connectToCloverReader(reader: ReaderInfo) {
+        binding.statusText.text = "Connecting to reader..."
 
-        // Register for discoveries
-        val filter = IntentFilter(BluetoothDevice.ACTION_FOUND)
-        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-        registerReceiver(bluetoothReceiver, filter)
-
-        try {
-            if (bluetoothAdapter?.isDiscovering == true) {
-                bluetoothAdapter?.cancelDiscovery()
-            }
-            bluetoothAdapter?.startDiscovery()
-            Timber.d("Classic Bluetooth discovery started")
-        } catch (e: Exception) {
-            Timber.e(e, "Error starting Bluetooth discovery")
-        }
-    }
-
-    private val scanCallback = object : ScanCallback() {
-        @SuppressLint("MissingPermission")
-        override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val device = result.device
-            runOnUiThread {
-                Timber.d("BLE device found: ${device.address}, name: ${device.name ?: "Unknown"}")
-                deviceAdapter.addDevice(device)
-            }
-        }
-
-        override fun onScanFailed(errorCode: Int) {
-            Timber.e("Scan failed with error code: $errorCode")
-            runOnUiThread {
-                Toast.makeText(this@MainActivity, "Scan failed: Error $errorCode", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private val bluetoothReceiver = object : BroadcastReceiver() {
-        @SuppressLint("MissingPermission")
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                BluetoothDevice.ACTION_FOUND -> {
-                    val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                    }
-
-                    device?.let {
-                        Timber.d("Classic Bluetooth device found: ${it.address}, name: ${it.name ?: "Unknown"}")
-                        runOnUiThread {
-                            deviceAdapter.addDevice(it)
-                        }
-                    }
-                }
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                    Timber.d("Classic Bluetooth discovery finished")
-                }
-            }
+        lifecycleScope.launch {
+            goSdk.connect(reader)
+//                .catch { error ->
+//                    Timber.e(error, "Connection error")
+//                    binding.statusText.text = "Connection failed: ${error.message}"
+//                }
+//                .collect { connectionState ->
+//                    Timber.d("Connection state: $connectionState")
+//                }
         }
     }
 
@@ -267,29 +298,103 @@ class MainActivity : AppCompatActivity() {
         isScanning = false
     }
 
-    private fun processPayment(amountCents: Int) {
-        if (connectedDevice == null) {
-            Toast.makeText(this, "No device connected", Toast.LENGTH_SHORT).show()
-            return
-        }
+    private fun processPayment(amountCents: Long) {
+        // Check if we have a CardReaderStatus.Ready state
+        // For this example, we'll just proceed with the payment
+
+        // Create a payment request
+        val request = PayRequest(
+            final = true, // true for Sales, false for Auth or PreAuth Transactions
+            capture = true, // true for Sales, true for Auth, false for PreAuth Transactions
+            amount = amountCents,
+            taxAmount = 0L,
+            tipAmount = 0L,
+            externalPaymentId = "pay-${System.currentTimeMillis()}", // Unique ID
+            externalReferenceId = "invoice-${System.currentTimeMillis()}" // Invoice number
+        )
 
         // Format amount for display
         val currencyFormat = NumberFormat.getCurrencyInstance(Locale.US)
         val amountStr = currencyFormat.format(amountCents / 100.0)
+        binding.statusText.text = "Processing payment of $amountStr..."
 
-        binding.statusText.text = "Status: Processing payment of $amountStr..."
+        // Process the payment
+        lifecycleScope.launch {
+            goSdk.chargeCardReader(request)
+                .catch { error ->
+                    Timber.e(error, "Payment error")
+                    binding.statusText.text = "Payment failed: ${error.message}"
+                    Toast.makeText(this@MainActivity, "Payment failed: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+                .collectLatest { state ->
+                    Timber.d("Charge state: $state")
+                    updateUIWithCardReaderState(state)
+                }
+        }
+    }
 
-        // In a real implementation, you would use the Clover Go SDK to process the payment
-        // This is simplified for illustration
+    private fun updateUIWithCardReaderState(state: Any) {
+        // This would be implemented based on the actual ChargeCardReaderState class structure
+        binding.statusText.text = "Payment status: $state"
 
-        // Simulate payment processing
-        handler.postDelayed({
-            binding.statusText.text = "Status: Payment of $amountStr completed successfully!"
-            Toast.makeText(this, "Payment processed successfully!", Toast.LENGTH_LONG).show()
+        // In a real implementation, you would handle different states appropriately
+        // For example:
+        // when (state) {
+        //     is ChargeCardReaderState.OnPaymentComplete -> {
+        //         binding.statusText.text = "Payment complete: ${state.response}"
+        //         binding.amountInput.text.clear()
+        //     }
+        //     is ChargeCardReaderState.OnPaymentError -> {
+        //         binding.statusText.text = "Payment error: ${state.error}"
+        //     }
+        //     is ChargeCardReaderState.OnReaderPaymentProgress -> {
+        //         binding.statusText.text = "Payment progress: ${state.event}"
+        //     }
+        // }
+    }
 
-            // Clear amount input
-            binding.amountInput.text.clear()
-        }, 3000) // Simulate 3-second payment processing
+    private val scanCallback = object : ScanCallback() {
+        @SuppressLint("MissingPermission")
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val device = result.device
+            runOnUiThread {
+                Timber.d("BLE device found: ${device.address}, name: ${device.name ?: "Unknown"}")
+                deviceAdapter.addDevice(device)
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            Timber.e("Scan failed with error code: $errorCode")
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, "Scan failed: Error $errorCode", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private val bluetoothReceiver = object : BroadcastReceiver() {
+        @SuppressLint("MissingPermission")
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                BluetoothDevice.ACTION_FOUND -> {
+                    val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    }
+
+                    device?.let {
+                        Timber.d("Classic Bluetooth device found: ${it.address}, name: ${it.name ?: "Unknown"}")
+                        runOnUiThread {
+                            deviceAdapter.addDevice(it)
+                        }
+                    }
+                }
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    Timber.d("Classic Bluetooth discovery finished")
+                }
+            }
+        }
     }
 
     override fun onRequestPermissionsResult(
