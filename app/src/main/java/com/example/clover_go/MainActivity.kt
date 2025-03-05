@@ -223,7 +223,18 @@ class MainActivity : AppCompatActivity() {
                     // Connect to the reader if it matches a specific pattern
                     // Uncomment and modify this to auto-connect to a specific reader
                      if (reader.bluetoothName.contains("XXXXXX")) { // Last 6 digits of device serial
-                         connectToCloverReader(reader)
+//                         connectToCloverReader(reader)
+                         try {
+                             // This assumes connect returns a Unit or similar non-Flow result
+                             goSdk.connect(reader)
+                             Timber.d("Connect request initiated")
+
+                             // The actual connection status will come through observeCardReaderStatus()
+                             // which we're already monitoring in onCreate
+                         } catch (e: Exception) {
+                             Timber.e(e, "Connection error")
+                             binding.statusText.text = "Connection failed: ${e.message}"
+                         }
                      }
                 }
         }
@@ -242,17 +253,7 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.text = "Connecting to reader..."
 
         lifecycleScope.launch {
-            try {
-                // This assumes connect returns a Unit or similar non-Flow result
-                goSdk.connect(reader)
-                Timber.d("Connect request initiated")
 
-                // The actual connection status will come through observeCardReaderStatus()
-                // which we're already monitoring in onCreate
-            } catch (e: Exception) {
-                Timber.e(e, "Connection error")
-                binding.statusText.text = "Connection failed: ${e.message}"
-            }
         }
     }
 
