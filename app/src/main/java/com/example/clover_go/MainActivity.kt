@@ -223,7 +223,7 @@ class MainActivity : AppCompatActivity() {
                     // Connect to the reader if it matches a specific pattern
                     // Uncomment and modify this to auto-connect to a specific reader
                      if (reader.bluetoothName.contains("110034")) { // Last 6 digits of device serial
-//                         connectToCloverReader(reader)
+                  connectToCloverReader(reader)
                          try {
                              // This assumes connect returns a Unit or similar non-Flow result
                              var dd = goSdk.connect(reader)
