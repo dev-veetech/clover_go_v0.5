@@ -99,13 +99,13 @@ class MainActivity : AppCompatActivity() {
         // Create GoSdk configuration using the provided parameters
         val config = GoSdkConfiguration.Builder(
             context = applicationContext,
-            appId = "DRTZ4XVXJ35ZJ",
+            appId = "BKFCXP6M2W742",
             appVersion = "1.0.0",
-            apiKey = "8a16faa5-5a63-7884-68bd-ebe29279f0dc", // Replace with your actual API key
-            apiSecret = "aeac2c1a-da66-f4cb-f8e2-d77ac8b436e3", // Replace with your actual API secret
-            oAuthFlowAppSecret = "aeac2c1a-da66-f4cb-f8e2-d77ac8b436e3", // Replace with your actual OAuth app secret
-            oAuthFlowRedirectURI = "https://combined-cms.getnook.ai/OAuthResponse", // Replace with your actual redirect URI
-            oAuthFlowAppID = "DRTZ4XVXJ35ZJ", // Replace with your actual OAuth app ID
+            apiKey = "37d5b926-5449-18cf-34d6-c6a224b3aecf", // Replace with your actual API key
+            apiSecret = "37d5b926-5449-18cf-34d6-c6a224b3aecf", // Replace with your actual API secret
+            oAuthFlowAppSecret = "37d5b926-5449-18cf-34d6-c6a224b3aecf", // Replace with your actual OAuth app secret
+            oAuthFlowRedirectURI = "https://com.example.clover_go://oauth-callback", // Replace with your actual redirect URI
+            oAuthFlowAppID = "BKFCXP6M2W742", // Replace with your actual OAuth app ID
             environment = GoSdkConfiguration.Environment.SANDBOX,
             reconnectLastConnectedReader = true
         ).build()
@@ -222,12 +222,12 @@ class MainActivity : AppCompatActivity() {
 
                     // Connect to the reader if it matches a specific pattern
                     // Uncomment and modify this to auto-connect to a specific reader
-                     if (reader.bluetoothName.contains("XXXXXX")) { // Last 6 digits of device serial
+                     if (reader.bluetoothName.contains("110034")) { // Last 6 digits of device serial
 //                         connectToCloverReader(reader)
                          try {
                              // This assumes connect returns a Unit or similar non-Flow result
-                             goSdk.connect(reader)
-                             Timber.d("Connect request initiated")
+                             var dd = goSdk.connect(reader)
+                             Timber.d("Connect request initiated ${dd.toString()}")
 
                              // The actual connection status will come through observeCardReaderStatus()
                              // which we're already monitoring in onCreate
